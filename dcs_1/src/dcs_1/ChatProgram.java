@@ -1,5 +1,6 @@
 package dcs_1;
 
+import java.io.*;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
@@ -12,14 +13,13 @@ public class ChatProgram {
 	private static int port;
 	private static String myIP;
 	private static String myNickname;
-	private static HashMap<InetAddress,String> peerNicknames;
+	private static HashMap<String,String> peerNicknames;
+	private static Boolean exiting = false;
 	
 
-	public static void main(String[] args) {
+	public static void main(String[] args) throws InterruptedException, UnknownHostException {
 		System.out.println("Starting program...");
-		
-		Runtime.getRuntime().addShutdownHook(new DoShutdown());
-		
+			
 		if (!isInputValid(args)) {
 			System.exit(1);
 		}
@@ -31,6 +31,65 @@ public class ChatProgram {
 			System.exit(0);
 		}
 		
+		//TODO: decide if InetAddress is more useful that a string of the address?
+		//It is!
+		peerNicknames = new HashMap<String, String>();
+		peerNicknames.put("127.0.0.1", "localhost");
+		
+	
+		//Start the 2 servers and their threads
+		MessageSenderServer sender = null;
+		ReceiveMessageProcessServer receiver = null;
+
+		try {
+			sender = new MessageSenderServer(port);
+			receiver = new ReceiveMessageProcessServer(port);
+			
+			
+		} catch (SocketException e) {
+			System.err.println("Unable to set up the chat servers. Program will exit.");
+			System.err.println(e.getMessage());
+			System.exit(1);
+		}
+		
+		Thread senderThread = new Thread(sender);
+		senderThread.start();
+							
+		Thread receiverThread = new Thread(receiver);
+		receiverThread.start();
+		
+		Runtime.getRuntime().addShutdownHook(new ShutdownUtil(receiver, sender, senderThread, receiverThread));			
+			
+		System.out.println("My IP is: " + myIP);
+		System.out.println("Port is: " +  port + " Name is: " + myNickname);
+		System.out.println("Everything has worked!");
+		
+		System.out.println("You can start typing messages!");
+		
+		while (!exiting) {
+					
+			BufferedReader inFromUser = new BufferedReader(new InputStreamReader(System.in));
+			String sentence;
+			try {
+				sentence = inFromUser.readLine();
+				
+				if (sentence.equalsIgnoreCase("exit")) {
+					exiting = true;
+				} else {
+					System.out.println("You typed: " + sentence);
+					System.out.println("Message will be sent");
+					
+					InetAddress ip = InetAddress.getByName("localhost");
+					sender.sendMessage(ip, sentence);
+				}
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}			
+		}
+		
+		System.exit(0);
+		
 /*		ArrayList<String> peerIPs = findReachableHosts(myIP);
 		
 		int pos = ordinalIndexOf(myIP, ".", 2);
@@ -38,10 +97,6 @@ public class ChatProgram {
 		//System.out.println("Subnet is: " + myIP.substring())
 		String address = myIP.substring(pos+1);
 		System.out.println("Unique part is: " + address);*/
-		
-		System.out.println("My IP is: " + myIP);
-		System.out.println("Port is: " +  port + " Name is: " + myNickname);
-		System.out.println("Everything has worked!");
 	}
 	
 	public static String getOwnIP() throws UnknownHostException {
@@ -55,7 +110,6 @@ public class ChatProgram {
 		try {
 			NetworkInterface myInterface = NetworkInterface.getByInetAddress(IP);
 			length = myInterface.getInterfaceAddresses().get(0).getNetworkPrefixLength();
-			System.out.println("NetworkPrefixLength is " + length);
 		} catch (SocketException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -111,7 +165,14 @@ public class ChatProgram {
 				
 				if (peer.isReachable(timeout)) {
 					System.out.println("Contacted host: "+peer);
-				} 
+					ips.add(hostToTry);
+				} else {
+					System.out.println("Host " + hostToTry +" was not reachable.");
+				}
+			} catch (UnknownHostException e) {
+				System.out.println("Unknown host exception for address: " + hostToTry);
+			} catch (IOException e) {
+				System.out.println("IO Exception while attempting to contact host " + hostToTry + "(Error: " + e.getMessage());
 			}
 		}
 		
